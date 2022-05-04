@@ -1,0 +1,457 @@
+﻿'Programmmed by Jiayi Wu
+Public Class frmOrdering
+    Private DB As New DBAccess
+    Dim rs As New Resizer
+    Dim intOrderID As Integer
+    Dim dtOrderItem As New DataTable
+    Dim decSplitAmt As Decimal
+    Dim decDiscountAmt As Decimal = 0.00
+
+
+
+    Private Sub frmOdering_Load(sender As Object, e As EventArgs) Handles Me.Load
+        CreatebtnFoodCategory()
+        UpdatelblOrderID()
+        ButtomFiguresDisplay()
+        rs.FindAllControls(Me)
+
+        lblSplit.Text = String.Empty
+        lblSplitAmt.Text = String.Empty
+        lblPaymentMeth.Text = String.Empty
+
+    End Sub
+
+    '*********************************************Add buttons for pnlMenuCategory*********************************************************'
+    Sub CreatebtnFoodCategory()
+        Dim dtMenuCategory As New DataTable
+        DB.ExecuteQuery("SELECT * FROM menu_category")
+
+        If DB.DBException <> String.Empty Then
+            MessageBox.Show(DB.DBException)
+            Exit Sub
+        End If
+
+        dtMenuCategory = DB.DBDataTable
+
+        Try
+            For Each row In dtMenuCategory.Rows
+                If row("is_active") = 1 Then
+                    Dim btnCategoryGroup As New Button
+
+                    AddHandler btnCategoryGroup.Click, Sub() CategorySelection(btnCategoryGroup)
+
+                    btnCategoryGroup.Text = row("name")
+                    btnCategoryGroup.Size = New Size(120, 36)
+                    btnCategoryGroup.Font = New System.Drawing.Font("Calibri", 11)
+                    pnlMenuCategory.Controls.Add(btnCategoryGroup)
+                End If
+
+            Next
+        Catch ex As Exception
+            MessageBox.Show("error")
+        End Try
+
+    End Sub
+
+
+    '*********************************************Add buttons for pnlMenuItem*********************************************************'
+    Sub CategorySelection(sender As Object)
+        Dim strCategorySelected = sender.text
+        Dim dtMenuitem As New DataTable
+
+
+        pnlMenuItem.Controls.Clear()
+
+        DB.AddParam("@name", strCategorySelected)
+        DB.ExecuteQuery("select c.category_id, c.name, m.item_id, m.item_name,m.price,m.is_active from menu_category as C  join menu as m on c.category_id = m.category_id where name = ?")
+
+        If DB.DBException <> String.Empty Then
+            MessageBox.Show(DB.DBException)
+            Exit Sub
+        End If
+
+        dtMenuitem = DB.DBDataTable
+
+        Try
+            For Each row In dtMenuitem.Rows
+                If row("is_active") = 1 Then
+                    Dim btnMenuItemGroup As New Button
+
+                    AddHandler btnMenuItemGroup.Click, Sub() MenuItemSelection(btnMenuItemGroup)
+
+                    btnMenuItemGroup.Text = row("item_name")
+                    btnMenuItemGroup.Size = New Size(120, 35)
+                    btnMenuItemGroup.Font = New System.Drawing.Font("Calibri", 10)
+
+                    pnlMenuItem.Controls.Add(btnMenuItemGroup)
+                End If
+            Next
+
+        Catch ex As Exception
+            MessageBox.Show("error")
+        End Try
+    End Sub
+
+
+    '*********************************************Add Ordering items TO the list box*********************************************************'
+    Public Sub MenuItemSelection(Sender As Object)
+
+        '''''''Display ordering item name, quantity and price; Quantity default to one
+        Dim strMenuItem As String = Sender.text
+        Dim dtMenuItemPrice As DataTable
+        Dim intIndex As Integer = lstOrderItem.FindString(strMenuItem)
+
+        If intIndex = -1 Then
+            lstOrderItem.Items.Add(strMenuItem)
+            lstQuantity.Items.Add("1")
+
+            DB.AddParam("@item_name", strMenuItem)
+            DB.ExecuteQuery("SELECT * FROM menu where item_name = ?")
+            If DB.DBException <> String.Empty Then
+                MessageBox.Show(DB.DBException)
+                Exit Sub
+            End If
+
+            dtMenuItemPrice = DB.DBDataTable
+            lstPrice.Items.Add(dtMenuItemPrice.Rows(0).Item("price").ToString)
+            lstItemID.Items.Add(dtMenuItemPrice.Rows(0).Item("item_id".ToString))
+
+            ButtomFiguresDisplay()
+        Else
+            lstQuantity.Items(intIndex) += 1
+            ButtomFiguresDisplay()
+        End If
+
+
+    End Sub
+
+    '******************************Button Figure Display*******************************************'
+    Public Sub ButtomFiguresDisplay()
+        ItemCount()
+        SubtotalDisplay()
+        tax()
+        DiscountedAmt()
+        Total()
+        SplitEqually()
+    End Sub
+
+    Sub ItemCount()
+        Dim Sum As Integer
+        Dim i As Integer
+
+        For i = 0 To lstQuantity.Items.Count - 1
+            If lstOrderItem.Items(i) = strline Then
+                Sum = Sum
+            Else
+                Sum = Sum + Val(lstQuantity.Items(i))
+            End If
+        Next
+        lblItemCount.Text = Sum.ToString
+
+    End Sub
+    Sub SubtotalDisplay()
+        Dim LineTotal As Double = 0.00
+        Dim i As Integer
+        Dim dblSubTotal As Double = 0.00
+
+        For i = 0 To lstOrderItem.Items.Count - 1
+            If lstOrderItem.Items(i) = strline Then
+                dblSubTotal = dblSubTotal
+            Else
+                LineTotal = lstQuantity.Items(i) * lstPrice.Items(i)
+                dblSubTotal += LineTotal
+            End If
+        Next
+        lblSubTotal.Text = dblSubTotal
+
+    End Sub
+    Sub tax()
+        Dim dblTaxRate As Decimal = 0.06
+        Dim decTax As Decimal
+
+        lblTax.Text = (CDbl(lblSubTotal.Text) * dblTaxRate).ToString("N2")
+        decTax = CDec(lblTax.Text)
+    End Sub
+    Sub Total()
+        Dim decTotal As Decimal
+
+        decTotal = CDec(lblSubTotal.Text) + CDec(lblTax.Text) + CDec(lblDiscAmt.Text)
+        lblTotal.Text = decTotal.ToString("N2")
+
+    End Sub
+    Sub DiscountedAmt()
+
+        decDiscountAmt = CDec(lblSubTotal.Text) * decDiscountRate
+        lblDiscAmt.Text = ("-" & decDiscountAmt.ToString("N2"))
+        If decDiscountAmt = 0 Then
+            lblDiscountRateInfo.Visible = False
+            Label7.ForeColor = Color.Black
+            lblDiscAmt.ForeColor = Color.Black
+        Else
+            lblDiscountRateInfo.Visible = True
+            lblDiscAmt.ForeColor = Color.Firebrick
+            Label7.ForeColor = Color.Firebrick
+            lblDiscountRateInfo.Text = ("*Discount Applied at " & FormatPercent(decDiscountRate))
+        End If
+
+    End Sub
+
+    Sub SplitEqually()
+
+        If intSplitCount > 0 Then
+            decSplitAmt = CDec(lblTotal.Text) / intSplitCount
+
+            lblSplit.Text = "Split Equally by " & intSplitCount & " :"
+            lblSplitAmt.Text = "$ " & decSplitAmt.ToString("N2")
+        Else
+            lblSplit.Text = String.Empty
+            lblSplitAmt.Text = String.Empty
+
+        End If
+    End Sub
+
+    Public Sub UpdatelblOrderID()
+        Dim dtOrderID As New DataTable
+        DB.ExecuteQuery("SELECT order_id FROM customer_order ORDER BY order_id DESC LIMIT 1")
+        dtOrderID = DB.DBDataTable
+        For Each row In dtOrderID.Rows
+            intOrderID = row("order_id") + 1
+            lblOrderID.Text = ("Order ID " & intOrderID.ToString)
+            frmOrdering_Type.lblOrderID.Text = ("Order ID    " & intOrderID.ToString)
+        Next
+
+    End Sub
+
+
+    '*********************************************Button Functions*********************************************************'
+    Private Sub btnExit_Click(sender As Object, e As EventArgs) Handles btnExit.Click
+        Me.Close()
+    End Sub
+
+    Private Sub btnClear_Click(sender As Object, e As EventArgs) Handles btnClear.Click
+        lstOrderItem.Items.Clear()
+        lstPrice.Items.Clear()
+        lstQuantity.Items.Clear()
+        lstItemID.Items.Clear()
+        decDiscountRate = 0.00
+        intSplitCount = 0
+        strPayMethod = String.Empty
+        lblPaymentMeth.Text = String.Empty
+        ButtomFiguresDisplay()
+    End Sub
+
+    Private Sub btnRemoveItem_Click(sender As Object, e As EventArgs) Handles btnRemoveItem.Click
+        If lstOrderItem.SelectedIndex < 0 Then
+            MessageBox.Show("Please select the item to remove")
+        Else
+            Dim strSelectedIndex As String = lstOrderItem.SelectedIndex.ToString()
+            lstOrderItem.Items.RemoveAt(strSelectedIndex)
+            lstQuantity.Items.RemoveAt(strSelectedIndex)
+            lstPrice.Items.RemoveAt(strSelectedIndex)
+            lstItemID.Items.RemoveAt(strSelectedIndex)
+        End If
+
+        ButtomFiguresDisplay()
+
+    End Sub
+
+    Private Sub btnDuplicate_Click(sender As Object, e As EventArgs) Handles btnDuplicate.Click
+        If lstOrderItem.SelectedIndex < 0 Then
+            MessageBox.Show("Please select the item to duplicate")
+        Else
+            If lstOrderItem.SelectedItem = strline Then
+                MessageBox.Show("Line can not be duplicated")
+            Else
+                Dim intSelectedIndex As Integer = lstOrderItem.SelectedIndex
+                Dim intQuantity As Integer = CInt(lstQuantity.Items(intSelectedIndex))
+                intQuantity += 1
+                lstQuantity.Items(intSelectedIndex) = intQuantity
+            End If
+        End If
+        ButtomFiguresDisplay()
+
+    End Sub
+
+    Private Sub btnDiscount_Click_1(sender As Object, e As EventArgs) Handles btnDiscount.Click
+
+        If CDec(lblDiscAmt.Text) = 0 Then
+            Dim frmDiscount As New frmOrder_discount
+            frmDiscount.ShowDialog()
+            ButtomFiguresDisplay()
+        Else
+            decDiscountRate = 0.00
+            ButtomFiguresDisplay()
+        End If
+    End Sub
+
+    Private Sub btnPay_Click(sender As Object, e As EventArgs) Handles btnPay.Click
+
+        If CDec(lblTotal.Text) = 0 Then
+            MessageBox.Show("No Item was selected")
+
+        Else
+            If strPayMethod = String.Empty Then
+                Dim frmPay As New Order_Payment
+                frmPay.ShowDialog()
+                ButtomFiguresDisplay()
+                lblPaymentMeth.Text = strPayMethod
+            Else
+                InsertCustomerOrder()
+                InsertOrderItem()
+                lblPaymentMeth.Text = strPayMethod
+                InsertPayment()
+                MessageBox.Show("Order Complete!")
+                btnClear.PerformClick()
+                btnExit.PerformClick()
+            End If
+        End If
+
+    End Sub
+
+
+    '************************************************** INSERT INTO SQL  ***********************************************************'
+    Public Sub InsertCustomerOrder()
+        Dim strComplete As String = "complete"
+
+        If String.IsNullOrEmpty(frmOrdering_Type.txtCustomerID.Text) Then
+            DB.AddParam("@customer_id", DBNull.Value)
+        Else
+            DB.AddParam("@customer_id", frmOrdering_Type.txtCustomerID.Text)
+        End If
+
+        DB.AddParam("@staff_id", intStaffID)   '**************needs to be updated, after combine with the security level******************'
+        DB.AddParam("@order_status", strComplete)
+        DB.AddParam("@order_type", lblOrderType.Text)
+
+        DB.ExecuteQuery("INSERT INTO customer_order(customer_id, staff_id, order_status, order_type) VALUES(?, ?, ?, ?)")
+        If DB.DBException <> String.Empty Then
+            MessageBox.Show(DB.DBException)
+            Exit Sub
+        End If
+
+    End Sub
+    Public Sub InsertOrderItem()
+
+        For item = 0 To lstOrderItem.Items.Count - 1
+            DB.AddParam("@order_id", intOrderID)
+            DB.AddParam("@item_id", lstItemID.Items(item))
+            DB.AddParam("quantity", lstQuantity.Items(item))
+
+            DB.ExecuteQuery("INSERT INTO order_item(order_id, item_id, quantity) VALUES(?, ?, ?)")
+
+            If DB.DBException <> String.Empty Then
+                MessageBox.Show(DB.DBException)
+                Exit Sub
+            End If
+        Next
+    End Sub
+
+    Public Sub InsertPayment()
+        'split bill function works now table insertation needs to be update
+        ' discount function needs to be update
+
+        Dim strOrderID As String = intOrderID
+        Dim strTotal As String = lblTotal.Text
+        Dim strTax As String = lblTax.Text
+        ' Dim intDiscountID As Integer = CInt(frmOrder_discount.lblDiscountID.Text)
+        Dim strDiscountedTotal As String = decDiscountAmt
+        Dim strAmountPaid As String = lblTotal.Text
+        Dim strPaymentMethod As String = lblPaymentMeth.Text
+        Dim intCounter As Integer
+        Dim strSplitAmt As String = decSplitAmt
+
+        If intSplitCount = 0 Then
+            intCounter = intSplitCount + 1
+        Else
+            If intSplitCount = 1 Then
+                intCounter = 1
+            Else
+                intCounter = intSplitCount
+            End If
+
+        End If
+
+        Select Case intCounter
+            Case >= 2
+                Do While intCounter >= 1
+                    DB.AddParam("order_id", strOrderID)   '1 param
+                    DB.AddParam("total_price", strTotal)    '2 param
+                    DB.AddParam("tax", strTax)    '3 param
+
+                    If strDiscountID = String.Empty Then
+                        DB.AddParam("@discount_id", DBNull.Value)   '4 param
+                        DB.AddParam("@discounted_total", strDiscountedTotal)    '5 param
+                    Else
+                        DB.AddParam("@discount_id", strDiscountID)
+                        DB.AddParam("@discounted_total", strDiscountedTotal)
+                    End If
+
+                    DB.AddParam("@amount_paid", strSplitAmt)     '6 param
+                    DB.AddParam("payment_method", strPaymentMethod)      '7 param
+
+                    DB.ExecuteQuery("INSERT INTO payment(order_id, total_price, tax, discount_id, discounted_total, amount_paid, payment_method) VALUES (?,?,?,?,?,?,?)")
+                    If DB.DBException <> String.Empty Then
+                        MessageBox.Show(DB.DBException)
+                        Exit Sub
+                    End If
+                    intCounter -= 1
+                Loop
+
+            Case = 1
+                DB.AddParam("order_id", strOrderID)   '1 param
+                DB.AddParam("total_price", strTotal)    '2 param
+                DB.AddParam("tax", strTax)    '3 param
+
+                If strDiscountID = String.Empty Then
+                    DB.AddParam("@discount_id", DBNull.Value)   '4 param
+                    DB.AddParam("@discounted_total", strDiscountedTotal)    '5 param
+                Else
+                    DB.AddParam("@discount_id", strDiscountID)
+                    DB.AddParam("@discounted_total", strDiscountedTotal)
+                End If
+
+
+                DB.AddParam("@amount_paid", strTotal)     '6 param
+                DB.AddParam("payment_method", strPaymentMethod)      '7 param
+
+                DB.ExecuteQuery("INSERT INTO payment(order_id, total_price, tax, discount_id, discounted_total, amount_paid, payment_method) VALUES (?,?,?,?,?,?,?)")
+                If DB.DBException <> String.Empty Then
+                    MessageBox.Show(DB.DBException)
+                    Exit Sub
+                End If
+        End Select
+
+    End Sub
+
+
+
+
+    '*********************************************  OTHER FUNCTIONS   *********************************************************'
+    Private Sub frmOdering_Resize(sender As Object, e As EventArgs) Handles Me.Resize
+        rs.ResizeAllControls(Me)
+    End Sub
+
+    Private Sub btnSplitEqual_Click(sender As Object, e As EventArgs) Handles btnSplitEqual.Click
+
+        If CDec(lblTotal.Text) = 0 Then
+            MessageBox.Show("No Item was Selected")
+
+        Else
+            If intSplitCount >= 1 Then
+                intSplitCount = 0
+                ButtomFiguresDisplay()
+            Else
+                Dim frmSplit As New Order_Split
+                Order_Split.ShowDialog()
+                ButtomFiguresDisplay()
+            End If
+        End If
+
+    End Sub
+
+    Private Sub lblPaymentMeth_DoubleClick(sender As Object, e As EventArgs) Handles lblPaymentMeth.DoubleClick
+        lblPaymentMeth.Text = String.Empty
+        strPayMethod = String.Empty
+
+    End Sub
+End Class
